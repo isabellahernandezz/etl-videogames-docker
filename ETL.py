@@ -1,48 +1,67 @@
-cat > ETL.py << 'EOF'
 import pandas as pd
-import argparse
 import os
 
-def extract(input_file):
-    print("📥 Extrayendo datos desde:", input_file)
-    return pd.read_csv(input_file)
+def main():
+    print("🎧 Iniciando proceso ETL para datos de Spotify (genres_v2.csv)...")
 
-def transform(df):
-    print("⚙️ Transformando datos...")
-    df = df.dropna(subset=['Genre', 'Global_Sales'])
-    df['Global_Sales'] = pd.to_numeric(df['Global_Sales'], errors='coerce').fillna(0)
+    input_file = "genres_v2.csv"
+    output_dir = "output"
 
-    # Calcular estadísticas por género
-    genre_stats = df.groupby('Genre', as_index=False).agg({
-        'Global_Sales': 'sum',
-        'NA_Sales': 'sum',
-        'EU_Sales': 'sum',
-        'JP_Sales': 'sum'
-    })
-    genre_stats['Rank_Score'] = (
-        genre_stats['Global_Sales'] * 1.5 +
-        genre_stats['NA_Sales'] +
-        genre_stats['EU_Sales'] +
-        genre_stats['JP_Sales'] * 0.5
-    )
-    return genre_stats
-
-def load(df, output_dir):
-    print("💾 Cargando resultados...")
+    # Crear carpeta de salida dentro del contenedor
     os.makedirs(output_dir, exist_ok=True)
-    df.to_csv(os.path.join(output_dir, "genre_stats.csv"), index=False)
-    top10 = df.sort_values(by="Rank_Score", ascending=False).head(10)
-    top10.to_csv(os.path.join(output_dir, "top10_genres.csv"), index=False)
-    print("✅ Archivos generados en:", output_dir)
+    print(f"📁 Carpeta de salida: {os.path.abspath(output_dir)}")
+
+    # Comprobar si el archivo existe
+    if not os.path.exists(input_file):
+        print(f"❌ ERROR: No se encontró el archivo {input_file}. Verifica que esté dentro del contenedor /app.")
+        return
+
+    # Cargar CSV
+    print("📂 Cargando datos...")
+    df = pd.read_csv(input_file)
+
+    # Mostrar columnas disponibles
+    print("📋 Columnas del dataset:", list(df.columns))
+
+    # LIMPIEZA DE DATOS
+    print("🧹 Limpiando datos...")
+    df = df.dropna(subset=["genre"]) if "genre" in df.columns else df.dropna(subset=["genres"])
+    genre_col = "genre" if "genre" in df.columns else "genres"
+    df[genre_col] = df[genre_col].astype(str).str.strip().str.title()
+
+    # Normalizar columnas numéricas comunes (si existen)
+    numeric_cols = [c for c in ["energy", "danceability", "loudness", "tempo", "valence"] if c in df.columns]
+    for col in numeric_cols:
+        df[col] = pd.to_numeric(df[col], errors="coerce")
+
+    # Guardar datos limpios
+    cleaned_path = os.path.join(output_dir, "cleaned_genres.csv")
+    df.to_csv(cleaned_path, index=False)
+    print(f"✅ Datos limpios guardados en: {cleaned_path}")
+
+    # TRANSFORMACIÓN: estadísticas por género
+    print("📊 Calculando estadísticas por género...")
+    group = df.groupby(genre_col).agg({
+        col: ["mean", "max", "min"] for col in numeric_cols
+    })
+    group.columns = ['_'.join(col).strip() for col in group.columns.values]
+    group["count"] = df.groupby(genre_col).size()
+
+    stats_path = os.path.join(output_dir, "genre_stats.csv")
+    group.to_csv(stats_path)
+    print(f"📈 Estadísticas guardadas en: {stats_path}")
+
+    # Cargar top 10 géneros por promedio de energía (si existe)
+    if "energy_mean" in group.columns:
+        top10 = group.sort_values("energy_mean", ascending=False).head(10)
+        top10_path = os.path.join(output_dir, "top10_genres.csv")
+        top10.to_csv(top10_path)
+        print(f"🏆 Top 10 géneros más energéticos guardado en: {top10_path}")
+    else:
+        print("⚠️ No se encontró columna 'energy' para generar el ranking.")
+
+    print("🎉 ETL finalizado con éxito.")
+    print("📂 Archivos generados dentro de /app/output/")
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="ETL Video Game Genres 2024")
-    parser.add_argument("--input", required=True)
-    parser.add_argument("--out-dir", default="output")
-    args = parser.parse_args()
-
-    df = extract(args.input)
-    transformed = transform(df)
-    load(transformed, args.out_dir)
-    print("🎮 ETL completado correctamente.")
-EOF
+    main()

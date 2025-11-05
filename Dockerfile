@@ -1,16 +1,14 @@
-cat > Dockerfile << 'EOF'
+# Imagen base
 FROM python:3.10-slim
 
-RUN useradd -m app
-USER app
-
+# Crea un directorio de trabajo dentro del contenedor
 WORKDIR /app
-RUN mkdir -p /app/output
 
-COPY requirements.txt .
+# Copia los archivos del proyecto al contenedor
+COPY . /app
+
+# Instala dependencias
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY . .
-
-CMD ["python", "ETL.py", "--input", "genres_v2.csv", "--out-dir", "output"]
-EOF
+# Comando que se ejecuta al iniciar el contenedor
+CMD ["python", "ETL.py"]
